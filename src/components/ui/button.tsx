@@ -1,25 +1,36 @@
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
-
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-mono ring-offset-background transition-all duration-75 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 uppercase",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
-        destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-        outline: "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
-        secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
-        link: "text-primary underline-offset-4 hover:underline",
+        default:
+          "border border-foreground bg-background text-foreground hover:border-accent hover:text-accent hover:shadow-accent-glow",
+        lockin:
+          "border border-accent text-accent shadow-accent-glow font-display text-[10px] hover:bg-accent hover:text-background",
+        lockinDisabled:
+          "border border-muted-foreground text-muted-foreground font-display text-[10px] cursor-not-allowed",
+        ghost:
+          "text-muted-foreground hover:text-foreground",
+        accent:
+          "bg-accent text-background font-display text-[10px] border border-accent hover:shadow-accent-glow",
+        outline:
+          "border border-foreground bg-background text-foreground hover:bg-surface hover:text-foreground",
+        secondary:
+          "bg-surface text-foreground border border-foreground hover:bg-background",
+        destructive:
+          "border border-accent bg-background text-accent hover:bg-accent hover:text-background",
+        link: "text-foreground underline-offset-4 hover:underline",
       },
       size: {
-        default: "h-10 px-4 py-2",
-        sm: "h-9 rounded-md px-3",
-        lg: "h-11 rounded-md px-8",
+        default: "px-4 py-2",
+        sm: "px-3 py-1.5 text-xs",
+        lg: "px-8 py-3",
+        full: "px-4 py-2 w-full",
         icon: "h-10 w-10",
       },
     },
