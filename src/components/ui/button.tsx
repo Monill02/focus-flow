@@ -18,12 +18,20 @@ const buttonVariants = cva(
           "text-muted-foreground hover:text-foreground",
         accent:
           "bg-accent text-background font-display text-[10px] border border-accent hover:shadow-accent-glow",
+        outline:
+          "border border-foreground bg-background text-foreground hover:bg-surface hover:text-foreground",
+        secondary:
+          "bg-surface text-foreground border border-foreground hover:bg-background",
+        destructive:
+          "border border-accent bg-background text-accent hover:bg-accent hover:text-background",
+        link: "text-foreground underline-offset-4 hover:underline",
       },
       size: {
         default: "px-4 py-2",
         sm: "px-3 py-1.5 text-xs",
         lg: "px-8 py-3",
         full: "px-4 py-2 w-full",
+        icon: "h-10 w-10",
       },
     },
     defaultVariants: {
