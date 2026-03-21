@@ -2,7 +2,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { getCurrentUserId, getActiveSessionId } from "@/lib/store";
+import { getActiveSessionId } from "@/lib/store";
+import { useAuth } from "@/lib/auth";
 
 import Onboard from "./pages/Onboard";
 import Dashboard from "./pages/Dashboard";
@@ -20,8 +21,9 @@ import NotFound from "./pages/NotFound";
 const queryClient = new QueryClient();
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const userId = getCurrentUserId();
-  if (!userId) return <Navigate to="/onboard" replace />;
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  if (!user) return <Navigate to="/onboard" replace />;
 
   // If user has active session, redirect to cockpit
   const activeSessionId = getActiveSessionId();

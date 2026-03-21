@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { useAuth } from "@/lib/auth";
 import {
   getCurrentUserId, getSettings, saveSettings, getAllowlist,
   addToAllowlist, removeFromAllowlist,
@@ -10,6 +11,7 @@ const IDLE_OPTIONS = [2, 5, 10, 15];
 const SCHEDULE_OPTIONS = [15, 30, 60];
 
 export default function Settings() {
+  const { signOut } = useAuth();
   const userId = getCurrentUserId();
   const [settings, setSettingsState] = useState(() => getSettings(userId || ""));
   const [newDomain, setNewDomain] = useState("");
@@ -51,6 +53,17 @@ export default function Settings() {
       <div className="flex-1 flex justify-center p-8">
         <div className="w-full max-w-[480px] flex flex-col gap-8">
           <h1 className="font-display text-sm text-foreground">SETTINGS</h1>
+          <div>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={async () => {
+                await signOut();
+              }}
+            >
+              SIGN OUT
+            </Button>
+          </div>
 
           {/* Motivation */}
           <div className="border border-foreground p-4 flex flex-col gap-2">

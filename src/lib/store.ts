@@ -110,11 +110,10 @@ export function getUserById(id: string): User | undefined {
   return getUsers().find(u => u.id === id);
 }
 
-export function createUser(name: string): User {
+export function createUser(name: string, id?: string): User {
   const users = getUsers();
-  if (users.length >= 2) throw new Error('Space is full');
   const user: User = {
-    id: genId(),
+    id: id || genId(),
     name,
     points: 0,
     streak: 0,
@@ -125,6 +124,12 @@ export function createUser(name: string): User {
   setList(KEYS.users, users);
   localStorage.setItem('antk_user_id', user.id);
   return user;
+}
+
+export function ensureUser(id: string, name: string): User {
+  const existing = getUserById(id);
+  if (existing) return existing;
+  return createUser(name, id);
 }
 
 export function updateUser(id: string, updates: Partial<User>) {
