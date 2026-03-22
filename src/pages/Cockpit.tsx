@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import NudgeOverlay from "@/components/NudgeOverlay";
 import FuelOverlay from "@/components/FuelOverlay";
 import CaughtOverlay from "@/components/CaughtOverlay";
+import ShiaOverlay from "@/components/ShiaOverlay"; // ← ADDED
 
 export default function Cockpit() {
   const { id } = useParams<{ id: string }>();
@@ -26,24 +27,25 @@ export default function Cockpit() {
   const [showNudge, setShowNudge] = useState(false);
   const [showFuel, setShowFuel] = useState(false);
   const [showCaught, setShowCaught] = useState(false);
+  const [showShia, setShowShia] = useState(false); // ← ADDED
   const [nudgeHeadline, setNudgeHeadline] = useState<string | undefined>(undefined);
   const [doomBanner, setDoomBanner] = useState<string | null>(null);
   const [status, setStatus] = useState<"ACTIVE" | "IDLE">("ACTIVE");
   const lastActivityRef = useRef(Date.now());
-  const overlaysRef = useRef({ nudge: false, caught: false, fuel: false });
+  const overlaysRef = useRef({ nudge: false, caught: false, fuel: false, shia: false }); // ← UPDATED
   const [, setTick] = useState(0);
 
-  overlaysRef.current = { nudge: showNudge, caught: showCaught, fuel: showFuel };
+  overlaysRef.current = { nudge: showNudge, caught: showCaught, fuel: showFuel, shia: showShia }; // ← UPDATED
 
+  // ← UPDATED: now fires ShiaOverlay instead of NudgeOverlay
   const handlePostureBad = useCallback(() => {
     if (!session || !userId) return;
     const s = getSettings(userId);
     if (!s.triggeredEnabled) return;
     const o = overlaysRef.current;
-    if (o.nudge || o.caught || o.fuel) return;
+    if (o.nudge || o.caught || o.fuel || o.shia) return; // ← UPDATED
     logViolation(session.id, "posture");
-    setNudgeHeadline("EYES UP — PHONE DOWN.");
-    setShowNudge(true);
+    setShowShia(true); // ← UPDATED (was setNudgeHeadline + setShowNudge)
   }, [session, userId]);
 
   // Redirect if no session
@@ -254,6 +256,10 @@ export default function Cockpit() {
             refreshUser();
           }}
         />
+      )}
+      {/* ← ADDED: Shia overlay for doomcam posture trigger */}
+      {showShia && (
+        <ShiaOverlay onDismiss={() => setShowShia(false)} />
       )}
     </div>
   );
