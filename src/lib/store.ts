@@ -49,7 +49,7 @@ export interface AllowlistEntry {
 export interface Violation {
   id: string;
   session_id: string;
-  type: 'tab' | 'idle';
+  type: 'tab' | 'idle' | 'posture';
   offending_url?: string;
   occurred_at: string;
 }
@@ -76,6 +76,8 @@ export interface UserSettings {
   scheduledEnabled: boolean;
   scheduledInterval: number; // minutes
   idleThreshold: number; // minutes
+  /** Webcam posture / “doomscroll” defense during active sessions */
+  doomscrollDefenseEnabled: boolean;
 }
 
 // Storage keys
@@ -338,7 +340,7 @@ export function removeFromAllowlist(id: string) {
 }
 
 // ============ VIOLATIONS ============
-export function logViolation(sessionId: string, type: 'tab' | 'idle', url?: string) {
+export function logViolation(sessionId: string, type: 'tab' | 'idle' | 'posture', url?: string) {
   const violations = getList<Violation>(KEYS.violations);
   violations.push({
     id: genId(),
@@ -447,6 +449,7 @@ export function getSettings(userId: string): UserSettings {
     scheduledEnabled: false,
     scheduledInterval: 30,
     idleThreshold: 5,
+    doomscrollDefenseEnabled: true,
   };
 }
 

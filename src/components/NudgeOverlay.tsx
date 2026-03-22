@@ -4,9 +4,11 @@ import { useState } from "react";
 
 interface Props {
   onDismiss: () => void;
+  /** Optional line above the GIF (e.g. posture / doomscroll). */
+  headline?: string;
 }
 
-export default function NudgeOverlay({ onDismiss }: Props) {
+export default function NudgeOverlay({ onDismiss, headline }: Props) {
   const [{ item }] = useState(() => getRandomMotivation());
 
   return (
@@ -15,6 +17,9 @@ export default function NudgeOverlay({ onDismiss }: Props) {
       style={{ border: '2px solid #FF00FF', margin: '8px' }}
     >
       <div className="flex flex-col items-center gap-8 p-8 max-w-[480px]">
+        {headline && (
+          <p className="font-display text-sm text-accent text-center tracking-wider">{headline}</p>
+        )}
         <img
           src={item.url}
           alt="motivation"

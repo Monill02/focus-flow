@@ -5,6 +5,7 @@ import {
   getCoworker, getActiveSession, getSettings, logViolation, formatDuration,
   getBountyEventsForSession,
 } from "@/lib/store";
+import { DoomcamSession, isDoomcamEnvEnabled } from "@/features/doomcam";
 import { Button } from "@/components/ui/button";
 import NudgeOverlay from "@/components/NudgeOverlay";
 import FuelOverlay from "@/components/FuelOverlay";
@@ -25,9 +26,25 @@ export default function Cockpit() {
   const [showNudge, setShowNudge] = useState(false);
   const [showFuel, setShowFuel] = useState(false);
   const [showCaught, setShowCaught] = useState(false);
+  const [nudgeHeadline, setNudgeHeadline] = useState<string | undefined>(undefined);
+  const [doomBanner, setDoomBanner] = useState<string | null>(null);
   const [status, setStatus] = useState<"ACTIVE" | "IDLE">("ACTIVE");
   const lastActivityRef = useRef(Date.now());
+  const overlaysRef = useRef({ nudge: false, caught: false, fuel: false });
   const [, setTick] = useState(0);
+
+  overlaysRef.current = { nudge: showNudge, caught: showCaught, fuel: showFuel };
+
+  const handlePostureBad = useCallback(() => {
+    if (!session || !userId) return;
+    const s = getSettings(userId);
+    if (!s.triggeredEnabled) return;
+    const o = overlaysRef.current;
+    if (o.nudge || o.caught || o.fuel) return;
+    logViolation(session.id, "posture");
+    setNudgeHeadline("EYES UP — PHONE DOWN.");
+    setShowNudge(true);
+  }, [session, userId]);
 
   // Redirect if no session
   useEffect(() => {
@@ -74,6 +91,7 @@ export default function Cockpit() {
         setStatus("IDLE");
         if (settings.triggeredEnabled && !showNudge && !showCaught) {
           logViolation(session.id, "idle");
+          setNudgeHeadline(undefined);
           setShowNudge(true);
         }
       }
@@ -110,6 +128,8 @@ export default function Cockpit() {
   // Force re-read user data
   const refreshUser = () => setTick(t => t + 1);
   const currentUser = userId ? getUserById(userId) : null;
+  const cockpitSettings = userId ? getSettings(userId) : null;
+  const doomcamEnvOn = isDoomcamEnvEnabled();
 
   if (!session || !project || !currentUser) return null;
 
@@ -124,6 +144,34 @@ export default function Cockpit() {
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
+      {cockpitSettings?.doomscrollDefenseEnabled && doomcamEnvOn && session.status === "active" && (
+        <DoomcamSession
+          active
+          enabled={cockpitSettings.doomscrollDefenseEnabled}
+          envEnabled={doomcamEnvOn}
+          onPostureBad={handlePostureBad}
+          onStatus={(s, detail) => {
+            if (s === "denied") {
+              setDoomBanner("Posture defense off — camera permission denied.");
+            } else if (s === "unavailable") {
+              setDoomBanner("Posture defense off — camera not available.");
+            } else if (s === "error") {
+              setDoomBanner(detail ?? "Posture defense failed to start.");
+            } else if (s === "off") {
+              setDoomBanner(null);
+            } else {
+              setDoomBanner(null);
+            }
+          }}
+        />
+      )}
+
+      {doomBanner && (
+        <div className="border-b border-accent px-4 py-2 text-center font-mono text-[10px] text-foreground">
+          {doomBanner}
+        </div>
+      )}
+
       {/* Top bar */}
       <div className="flex items-center justify-between border-b border-foreground px-4 py-3">
         <span className="font-mono text-sm text-foreground">{project.name}</span>
@@ -189,8 +237,10 @@ export default function Cockpit() {
       {/* Overlays */}
       {showNudge && (
         <NudgeOverlay
+          headline={nudgeHeadline}
           onDismiss={() => {
             setShowNudge(false);
+            setNudgeHeadline(undefined);
             lastActivityRef.current = Date.now();
             setStatus("ACTIVE");
           }}

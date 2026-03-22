@@ -76,8 +76,16 @@ export default function Settings() {
             <Toggle
               checked={settings.triggeredEnabled}
               onChange={(v) => update({ triggeredEnabled: v })}
-              label="Triggered (on idle)"
+              label="Triggered nudges (idle + posture)"
             />
+            <Toggle
+              checked={settings.doomscrollDefenseEnabled}
+              onChange={(v) => update({ doomscrollDefenseEnabled: v })}
+              label="Posture / doomscroll camera (during session)"
+            />
+            <p className="font-mono text-[10px] text-muted-foreground -mt-1">
+              Uses your webcam only while locked in. Processing stays on your device.
+            </p>
             <Toggle
               checked={settings.scheduledEnabled}
               onChange={() => {}}
