@@ -8,13 +8,15 @@ const BUILD_STAGES = ["Ideation", "Building", "Shipping", "Done"] as const;
 export default function NewProject() {
   const [name, setName] = useState("");
   const [stage, setStage] = useState<typeof BUILD_STAGES[number]>("Ideation");
+  const [saving, setSaving] = useState(false);
   const navigate = useNavigate();
   const userId = getCurrentUserId();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !userId) return;
-    createProject(userId, name.trim(), stage);
+    if (!name.trim() || !userId || saving) return;
+    setSaving(true);
+    await createProject(userId, name.trim(), stage);
     navigate("/");
   };
 
@@ -41,9 +43,7 @@ export default function NewProject() {
                 type="button"
                 onClick={() => setStage(s)}
                 className={`border border-foreground px-3 py-2 font-mono text-xs transition-colors duration-75 ${
-                  stage === s
-                    ? "bg-foreground text-background"
-                    : "bg-background text-foreground hover:bg-surface"
+                  stage === s ? "bg-foreground text-background" : "bg-background text-foreground hover:bg-surface"
                 }`}
               >
                 {s}
@@ -52,8 +52,8 @@ export default function NewProject() {
           </div>
         </div>
 
-        <Button type="submit" variant="default" className="font-display text-[10px]" disabled={!name.trim()}>
-          CREATE PROJECT
+        <Button type="submit" variant="default" className="font-display text-[10px]" disabled={!name.trim() || saving}>
+          {saving ? "CREATING..." : "CREATE PROJECT"}
         </Button>
 
         <button onClick={() => navigate("/")} className="font-mono text-xs text-muted-foreground hover:text-foreground">

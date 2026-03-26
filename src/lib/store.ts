@@ -1,10 +1,9 @@
-// localStorage-based data layer for antk MVP prototype
+import { supabase } from "@/lib/supabase";
 
-const genId = (): string => {
-  return Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
-};
+const genId = (): string =>
+  Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
 
-// Types
+// ============ TYPES ============
 export interface User {
   id: string;
   name: string;
@@ -18,8 +17,8 @@ export interface Project {
   id: string;
   user_id: string;
   name: string;
-  build_stage: 'Ideation' | 'Building' | 'Shipping' | 'Done';
-  status: 'active' | 'done';
+  build_stage: "Ideation" | "Building" | "Shipping" | "Done";
+  status: "active" | "done";
   created_at: string;
   last_session_date: string | null;
   total_sessions: number;
@@ -30,13 +29,13 @@ export interface Session {
   project_id: string;
   user_id: string;
   goal: string;
-  time_block: number | null; // minutes
-  status: 'active' | 'complete' | 'abandoned';
+  time_block: number | null;
+  status: "active" | "complete" | "abandoned";
   started_at: string;
   ended_at: string | null;
   bounty_uuid: string | null;
   bounty_active: boolean;
-  tab_deductions: number; // track per-session deductions
+  tab_deductions: number;
 }
 
 export interface AllowlistEntry {
@@ -49,7 +48,7 @@ export interface AllowlistEntry {
 export interface Violation {
   id: string;
   session_id: string;
-  type: 'tab' | 'idle' | 'posture';
+  type: "tab" | "idle" | "posture";
   offending_url?: string;
   occurred_at: string;
 }
@@ -74,254 +73,229 @@ export interface UserSettings {
   fuelEnabled: boolean;
   triggeredEnabled: boolean;
   scheduledEnabled: boolean;
-  scheduledInterval: number; // minutes
-  idleThreshold: number; // minutes
-  /** Webcam posture / “doomscroll” defense during active sessions */
+  scheduledInterval: number;
+  idleThreshold: number;
   doomscrollDefenseEnabled: boolean;
 }
 
-// Storage keys
-const KEYS = {
-  users: 'antk_users',
-  projects: 'antk_projects',
-  sessions: 'antk_sessions',
-  allowlist: 'antk_allowlist',
-  violations: 'antk_violations',
-  reflections: 'antk_reflections',
-  bountyEvents: 'antk_bounty_events',
-};
-
-function getList<T>(key: string): T[] {
-  try {
-    return JSON.parse(localStorage.getItem(key) || '[]');
-  } catch {
-    return [];
-  }
-}
-
-function setList<T>(key: string, data: T[]) {
-  localStorage.setItem(key, JSON.stringify(data));
-}
-
 // ============ USERS ============
-export function getUsers(): User[] {
-  return getList<User>(KEYS.users);
+export async function getUserById(id: string): Promise<User | undefined> {
+  const { data } = await supabase.from("antk_users").select("*").eq("id", id).single();
+  return data ?? undefined;
 }
 
-export function getUserById(id: string): User | undefined {
-  return getUsers().find(u => u.id === id);
-}
-
-export function createUser(name: string, id?: string): User {
-  const users = getUsers();
+export async function ensureUser(id: string, name: string): Promise<User> {
+  const existing = await getUserById(id);
+  if (existing) return existing;
   const user: User = {
-    id: id || genId(),
+    id,
     name,
     points: 0,
     streak: 0,
     last_session_date: null,
     created_at: new Date().toISOString(),
   };
-  users.push(user);
-  setList(KEYS.users, users);
-  localStorage.setItem('antk_user_id', user.id);
+  await supabase.from("antk_users").insert(user);
   return user;
 }
 
-export function ensureUser(id: string, name: string): User {
-  const existing = getUserById(id);
-  if (existing) return existing;
-  return createUser(name, id);
-}
-
-export function updateUser(id: string, updates: Partial<User>) {
-  const users = getUsers();
-  const idx = users.findIndex(u => u.id === id);
-  if (idx !== -1) {
-    users[idx] = { ...users[idx], ...updates };
-    setList(KEYS.users, users);
-  }
+export async function updateUser(id: string, updates: Partial<User>) {
+  await supabase.from("antk_users").update(updates).eq("id", id);
 }
 
 export function getCurrentUserId(): string | null {
-  return localStorage.getItem('antk_user_id');
+  return localStorage.getItem("antk_user_id");
 }
 
-export function getCurrentUser(): User | undefined {
+export async function getCurrentUser(): Promise<User | undefined> {
   const id = getCurrentUserId();
   return id ? getUserById(id) : undefined;
 }
 
-export function getCoworker(): User | undefined {
+export async function getCoworker(): Promise<User | undefined> {
   const myId = getCurrentUserId();
-  return getUsers().find(u => u.id !== myId);
+  if (!myId) return undefined;
+  const { data } = await supabase.from("antk_users").select("*").neq("id", myId).limit(1);
+  return data?.[0] ?? undefined;
 }
 
 // ============ PROJECTS ============
-export function getProjects(): Project[] {
-  return getList<Project>(KEYS.projects);
+export async function getUserProjects(userId: string): Promise<Project[]> {
+  const { data } = await supabase.from("antk_projects").select("*").eq("user_id", userId);
+  return data ?? [];
 }
 
-export function getUserProjects(userId: string): Project[] {
-  return getProjects().filter(p => p.user_id === userId);
+export async function getActiveProjects(userId: string): Promise<Project[]> {
+  const { data } = await supabase
+    .from("antk_projects")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("status", "active");
+  if (!data) return [];
+  return data.sort((a, b) => {
+    const da = a.last_session_date || a.created_at;
+    const db = b.last_session_date || b.created_at;
+    return new Date(db).getTime() - new Date(da).getTime();
+  });
 }
 
-export function getActiveProjects(userId: string): Project[] {
-  return getUserProjects(userId)
-    .filter(p => p.status === 'active')
-    .sort((a, b) => {
-      const da = a.last_session_date || a.created_at;
-      const db = b.last_session_date || b.created_at;
-      return new Date(db).getTime() - new Date(da).getTime();
-    });
+export async function getDoneProjects(userId: string): Promise<Project[]> {
+  const { data } = await supabase
+    .from("antk_projects")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("status", "done");
+  return data ?? [];
 }
 
-export function getDoneProjects(userId: string): Project[] {
-  return getUserProjects(userId).filter(p => p.status === 'done');
+export async function getProjectById(id: string): Promise<Project | undefined> {
+  const { data } = await supabase.from("antk_projects").select("*").eq("id", id).single();
+  return data ?? undefined;
 }
 
-export function getProjectById(id: string): Project | undefined {
-  return getProjects().find(p => p.id === id);
-}
-
-export function createProject(userId: string, name: string, buildStage: Project['build_stage'] = 'Ideation'): Project {
-  const projects = getProjects();
+export async function createProject(
+  userId: string,
+  name: string,
+  buildStage: Project["build_stage"] = "Ideation",
+): Promise<Project> {
   const project: Project = {
     id: genId(),
     user_id: userId,
     name,
     build_stage: buildStage,
-    status: 'active',
+    status: "active",
     created_at: new Date().toISOString(),
     last_session_date: null,
     total_sessions: 0,
   };
-  projects.push(project);
-  setList(KEYS.projects, projects);
+  await supabase.from("antk_projects").insert(project);
   return project;
 }
 
-export function updateProject(id: string, updates: Partial<Project>) {
-  const projects = getProjects();
-  const idx = projects.findIndex(p => p.id === id);
-  if (idx !== -1) {
-    projects[idx] = { ...projects[idx], ...updates };
-    setList(KEYS.projects, projects);
-  }
+export async function updateProject(id: string, updates: Partial<Project>) {
+  await supabase.from("antk_projects").update(updates).eq("id", id);
 }
 
 // ============ SESSIONS ============
-export function getSessions(): Session[] {
-  return getList<Session>(KEYS.sessions);
+export async function getSessionById(id: string): Promise<Session | undefined> {
+  const { data } = await supabase.from("antk_sessions").select("*").eq("id", id).single();
+  return data ?? undefined;
 }
 
-export function getSessionById(id: string): Session | undefined {
-  return getSessions().find(s => s.id === id);
+export async function getSessionByBountyUuid(uuid: string): Promise<Session | undefined> {
+  const { data } = await supabase
+    .from("antk_sessions")
+    .select("*")
+    .eq("bounty_uuid", uuid)
+    .single();
+  return data ?? undefined;
 }
 
-export function getSessionByBountyUuid(uuid: string): Session | undefined {
-  return getSessions().find(s => s.bounty_uuid === uuid);
+export async function getActiveSession(userId: string): Promise<Session | undefined> {
+  const { data } = await supabase
+    .from("antk_sessions")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .limit(1);
+  return data?.[0] ?? undefined;
 }
 
-export function getActiveSession(userId: string): Session | undefined {
-  return getSessions().find(s => s.user_id === userId && s.status === 'active');
+export async function getProjectSessions(projectId: string): Promise<Session[]> {
+  const { data } = await supabase
+    .from("antk_sessions")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("started_at", { ascending: false });
+  return data ?? [];
 }
 
-export function getProjectSessions(projectId: string): Session[] {
-  return getSessions()
-    .filter(s => s.project_id === projectId)
-    .sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
+export async function getUserSessions(userId: string): Promise<Session[]> {
+  const { data } = await supabase
+    .from("antk_sessions")
+    .select("*")
+    .eq("user_id", userId)
+    .neq("status", "active")
+    .order("started_at", { ascending: false });
+  return data ?? [];
 }
 
-export function createSession(data: {
+export async function createSession(data: {
   project_id: string;
   user_id: string;
   goal: string;
   time_block: number | null;
   bounty: boolean;
-}): Session {
-  const sessions = getSessions();
+}): Promise<Session> {
   const session: Session = {
     id: genId(),
     project_id: data.project_id,
     user_id: data.user_id,
     goal: data.goal,
     time_block: data.time_block,
-    status: 'active',
+    status: "active",
     started_at: new Date().toISOString(),
     ended_at: null,
     bounty_uuid: data.bounty ? genId() : null,
     bounty_active: data.bounty,
     tab_deductions: 0,
   };
-  sessions.push(session);
-  setList(KEYS.sessions, sessions);
-  localStorage.setItem('antk_active_session', session.id);
+  await supabase.from("antk_sessions").insert(session);
+  localStorage.setItem("antk_active_session", session.id);
   return session;
 }
 
-export function endSession(sessionId: string) {
-  const sessions = getSessions();
-  const idx = sessions.findIndex(s => s.id === sessionId);
-  if (idx === -1) return;
+export async function endSession(sessionId: string) {
+  const session = await getSessionById(sessionId);
+  if (!session) return;
 
-  const session = sessions[idx];
-  sessions[idx] = {
-    ...session,
-    status: 'complete',
-    ended_at: new Date().toISOString(),
-    bounty_active: false,
-  };
-  setList(KEYS.sessions, sessions);
-  localStorage.removeItem('antk_active_session');
+  await supabase
+    .from("antk_sessions")
+    .update({ status: "complete", ended_at: new Date().toISOString(), bounty_active: false })
+    .eq("id", sessionId);
 
-  // Update project
-  updateProject(session.project_id, {
-    last_session_date: new Date().toISOString(),
-    total_sessions: (getProjectById(session.project_id)?.total_sessions || 0) + 1,
-  });
+  localStorage.removeItem("antk_active_session");
 
-  // Award points
-  const user = getUserById(session.user_id);
+  const project = await getProjectById(session.project_id);
+  if (project) {
+    await updateProject(session.project_id, {
+      last_session_date: new Date().toISOString(),
+      total_sessions: project.total_sessions + 1,
+    });
+  }
+
+  const user = await getUserById(session.user_id);
   if (user) {
-    let newPoints = user.points + 10;
-    let newStreak = user.streak;
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date().toISOString().split("T")[0];
     const lastDate = user.last_session_date;
-
+    let newStreak = user.streak;
     if (!lastDate) {
       newStreak = 1;
-    } else if (lastDate === today) {
-      // no change
-    } else {
-      const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-      if (lastDate === yesterday) {
-        newStreak = user.streak + 1;
-      } else {
-        newStreak = 1;
-      }
+    } else if (lastDate !== today) {
+      const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
+      newStreak = lastDate === yesterday ? user.streak + 1 : 1;
     }
-
-    updateUser(user.id, {
-      points: newPoints,
-      streak: newStreak,
-      last_session_date: today,
-    });
+    await updateUser(user.id, { points: user.points + 10, streak: newStreak, last_session_date: today });
   }
 }
 
 export function getActiveSessionId(): string | null {
-  return localStorage.getItem('antk_active_session');
+  return localStorage.getItem("antk_active_session");
 }
 
 // ============ ALLOWLIST ============
-export function getAllowlist(userId: string): AllowlistEntry[] {
-  return getList<AllowlistEntry>(KEYS.allowlist).filter(a => a.user_id === userId);
+export async function getAllowlist(userId: string): Promise<AllowlistEntry[]> {
+  const { data } = await supabase.from("antk_allowlist").select("*").eq("user_id", userId);
+  return data ?? [];
 }
 
-export function addToAllowlist(userId: string, domain: string): AllowlistEntry {
-  const list = getList<AllowlistEntry>(KEYS.allowlist);
-  const existing = list.find(a => a.user_id === userId && a.domain === domain);
+export async function addToAllowlist(userId: string, domain: string): Promise<AllowlistEntry> {
+  const { data: existing } = await supabase
+    .from("antk_allowlist")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("domain", domain)
+    .single();
   if (existing) return existing;
   const entry: AllowlistEntry = {
     id: genId(),
@@ -329,132 +303,136 @@ export function addToAllowlist(userId: string, domain: string): AllowlistEntry {
     domain,
     last_used_at: new Date().toISOString(),
   };
-  list.push(entry);
-  setList(KEYS.allowlist, list);
+  await supabase.from("antk_allowlist").insert(entry);
   return entry;
 }
 
-export function removeFromAllowlist(id: string) {
-  const list = getList<AllowlistEntry>(KEYS.allowlist);
-  setList(KEYS.allowlist, list.filter(a => a.id !== id));
+export async function removeFromAllowlist(id: string) {
+  await supabase.from("antk_allowlist").delete().eq("id", id);
 }
 
 // ============ VIOLATIONS ============
-export function logViolation(sessionId: string, type: 'tab' | 'idle' | 'posture', url?: string) {
-  const violations = getList<Violation>(KEYS.violations);
-  violations.push({
+export async function logViolation(sessionId: string, type: "tab" | "idle" | "posture", url?: string) {
+  await supabase.from("antk_violations").insert({
     id: genId(),
     session_id: sessionId,
     type,
     offending_url: url,
     occurred_at: new Date().toISOString(),
   });
-  setList(KEYS.violations, violations);
 
-  // Deduct points for tab violations (cap at -15 per session)
-  if (type === 'tab') {
-    const sessions = getSessions();
-    const sIdx = sessions.findIndex(s => s.id === sessionId);
-    if (sIdx !== -1 && sessions[sIdx].tab_deductions < 15) {
-      sessions[sIdx].tab_deductions += 5;
-      setList(KEYS.sessions, sessions);
-      const user = getUserById(sessions[sIdx].user_id);
-      if (user) {
-        updateUser(user.id, { points: Math.max(0, user.points - 5) });
-      }
+  if (type === "tab") {
+    const session = await getSessionById(sessionId);
+    if (session && session.tab_deductions < 15) {
+      await supabase
+        .from("antk_sessions")
+        .update({ tab_deductions: session.tab_deductions + 5 })
+        .eq("id", sessionId);
+      const user = await getUserById(session.user_id);
+      if (user) await updateUser(user.id, { points: Math.max(0, user.points - 5) });
     }
   }
 }
 
 // ============ REFLECTIONS ============
-export function getReflections(): Reflection[] {
-  return getList<Reflection>(KEYS.reflections);
+export async function getReflectionBySessionId(sessionId: string): Promise<Reflection | undefined> {
+  const { data } = await supabase
+    .from("antk_reflections")
+    .select("*")
+    .eq("session_id", sessionId)
+    .single();
+  return data ?? undefined;
 }
 
-export function getReflectionBySessionId(sessionId: string): Reflection | undefined {
-  return getReflections().find(r => r.session_id === sessionId);
-}
-
-export function createReflection(sessionId: string, data: {
-  what_shipped: string;
-  what_learned: string;
-  what_blocked: string;
-}): Reflection {
-  const reflections = getReflections();
+export async function createReflection(
+  sessionId: string,
+  data: { what_shipped: string; what_learned: string; what_blocked: string },
+): Promise<Reflection> {
   const reflection: Reflection = {
     id: genId(),
     session_id: sessionId,
     ...data,
     created_at: new Date().toISOString(),
   };
-  reflections.push(reflection);
-  setList(KEYS.reflections, reflections);
+  await supabase.from("antk_reflections").insert(reflection);
 
-  // Award +5 points
-  const session = getSessionById(sessionId);
+  const session = await getSessionById(sessionId);
   if (session) {
-    const user = getUserById(session.user_id);
-    if (user) {
-      updateUser(user.id, { points: user.points + 5 });
-    }
+    const user = await getUserById(session.user_id);
+    if (user) await updateUser(user.id, { points: user.points + 5 });
   }
   return reflection;
 }
 
 // ============ BOUNTY EVENTS ============
-export function getBountyEvents(): BountyEvent[] {
-  return getList<BountyEvent>(KEYS.bountyEvents);
+export async function getBountyEventsForSession(sessionId: string): Promise<BountyEvent[]> {
+  const { data } = await supabase
+    .from("antk_bounty_events")
+    .select("*")
+    .eq("session_id", sessionId);
+  return data ?? [];
 }
 
-export function getBountyEventsForSession(sessionId: string): BountyEvent[] {
-  return getBountyEvents().filter(e => e.session_id === sessionId);
-}
+export async function createBountyEvent(sessionId: string): Promise<BountyEvent | null> {
+  const existing = await getBountyEventsForSession(sessionId);
+  if (existing.length > 0) return null;
 
-export function createBountyEvent(sessionId: string): BountyEvent | null {
-  // Only one catch per session
-  if (getBountyEventsForSession(sessionId).length > 0) return null;
-  const events = getBountyEvents();
   const event: BountyEvent = {
     id: genId(),
     session_id: sessionId,
     caught_at: new Date().toISOString(),
-    checker_ip: 'local',
+    checker_ip: "remote",
   };
-  events.push(event);
-  setList(KEYS.bountyEvents, events);
+  await supabase.from("antk_bounty_events").insert(event);
 
-  // Penalty: streak reset, -15 points
-  const session = getSessionById(sessionId);
+  const session = await getSessionById(sessionId);
   if (session) {
-    const user = getUserById(session.user_id);
-    if (user) {
-      updateUser(user.id, {
-        streak: 0,
-        points: Math.max(0, user.points - 15),
-      });
-    }
+    const user = await getUserById(session.user_id);
+    if (user) await updateUser(user.id, { streak: 0, points: Math.max(0, user.points - 15) });
   }
   return event;
 }
 
 // ============ SETTINGS ============
-export function getSettings(userId: string): UserSettings {
-  try {
-    const raw = localStorage.getItem(`antk_settings_${userId}`);
-    if (raw) return JSON.parse(raw);
-  } catch {}
+const DEFAULT_SETTINGS: UserSettings = {
+  fuelEnabled: true,
+  triggeredEnabled: true,
+  scheduledEnabled: false,
+  scheduledInterval: 30,
+  idleThreshold: 5,
+  doomscrollDefenseEnabled: true,
+};
+
+export async function getSettings(userId: string): Promise<UserSettings> {
+  const { data } = await supabase
+    .from("antk_user_settings")
+    .select("*")
+    .eq("user_id", userId)
+    .single();
+  if (!data) return DEFAULT_SETTINGS;
   return {
-    fuelEnabled: true,
-    triggeredEnabled: true,
-    scheduledEnabled: false,
-    scheduledInterval: 30,
-    idleThreshold: 5,
-    doomscrollDefenseEnabled: true,
+    fuelEnabled: data.fuel_enabled,
+    triggeredEnabled: data.triggered_enabled,
+    scheduledEnabled: data.scheduled_enabled,
+    scheduledInterval: data.scheduled_interval,
+    idleThreshold: data.idle_threshold,
+    doomscrollDefenseEnabled: data.doomscroll_defense_enabled,
   };
 }
 
-export function saveSettings(userId: string, settings: UserSettings) {
-  localStorage.setItem(`antk_settings_${userId}`, JSON.stringify(settings));
+export async function saveSettings(userId: string, settings: UserSettings) {
+  await supabase.from("antk_user_settings").upsert(
+    {
+      user_id: userId,
+      fuel_enabled: settings.fuelEnabled,
+      triggered_enabled: settings.triggeredEnabled,
+      scheduled_enabled: settings.scheduledEnabled,
+      scheduled_interval: settings.scheduledInterval,
+      idle_threshold: settings.idleThreshold,
+      doomscroll_defense_enabled: settings.doomscrollDefenseEnabled,
+    },
+    { onConflict: "user_id" },
+  );
 }
 
 // ============ HELPERS ============
@@ -463,22 +441,18 @@ export function formatDuration(ms: number): string {
   const h = Math.floor(totalSecs / 3600);
   const m = Math.floor((totalSecs % 3600) / 60);
   const s = totalSecs % 60;
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
 export function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
   const days = Math.floor(diff / 86400000);
-  if (days === 0) return 'Today';
-  if (days === 1) return '1 day ago';
+  if (days === 0) return "Today";
+  if (days === 1) return "1 day ago";
   return `${days} days ago`;
 }
 
 export function sessionDuration(session: Session): number {
   const end = session.ended_at ? new Date(session.ended_at).getTime() : Date.now();
   return end - new Date(session.started_at).getTime();
-}
-
-export function getTotalTimeForProject(projectId: string): number {
-  return getProjectSessions(projectId).reduce((sum, s) => sum + sessionDuration(s), 0);
 }

@@ -1,47 +1,58 @@
 import { Link, useNavigate } from "react-router-dom";
-import { getCurrentUser, getActiveProjects, getDoneProjects, getCoworker, getActiveSession, timeAgo } from "@/lib/store";
+import {
+  getCurrentUserId, getUserById, getActiveProjects, getDoneProjects,
+  getCoworker, getActiveSession, timeAgo,
+} from "@/lib/store";
+import type { User, Project } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const user = getCurrentUser();
-  const coworker = getCoworker();
+  const [user, setUser] = useState<User | null>(null);
+  const [coworker, setCoworker] = useState<User | null>(null);
+  const [activeProjects, setActiveProjects] = useState<Project[]>([]);
+  const [doneProjects, setDoneProjects] = useState<Project[]>([]);
   const [showDone, setShowDone] = useState(false);
-  const [, setTick] = useState(0);
+  const [tick, setTick] = useState(0);
 
-  // Re-render periodically to update stats
+  useEffect(() => {
+    const userId = getCurrentUserId();
+    if (!userId) { navigate("/onboard"); return; }
+    Promise.all([
+      getUserById(userId),
+      getActiveProjects(userId),
+      getDoneProjects(userId),
+      getCoworker(),
+      getActiveSession(userId),
+    ]).then(([u, active, done, cw, activeSess]) => {
+      if (!u) { navigate("/onboard"); return; }
+      if (activeSess) { navigate(`/session/${activeSess.id}`); return; }
+      setUser(u);
+      setActiveProjects(active);
+      setDoneProjects(done);
+      setCoworker(cw ?? null);
+    });
+  }, [navigate, tick]);
+
+  // Re-fetch periodically to update stats
   useEffect(() => {
     const i = setInterval(() => setTick(t => t + 1), 5000);
     return () => clearInterval(i);
   }, []);
 
-  if (!user) {
-    navigate("/onboard");
-    return null;
-  }
+  if (!user) return null;
 
-  // Redirect if active session
-  const activeSession = getActiveSession(user.id);
-  if (activeSession) {
-    navigate(`/session/${activeSession.id}`);
-    return null;
-  }
-
-  const activeProjects = getActiveProjects(user.id);
-  const doneProjects = getDoneProjects(user.id);
   const extActive = localStorage.getItem("antk_ext_active") === "true";
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      {/* Extension banner */}
       {!extActive && (
         <div className="border-b border-foreground px-4 py-2 text-center font-mono text-xs text-foreground">
           INSTALL THE ANTK EXTENSION TO ENABLE DISTRACTION DEFENSE →
         </div>
       )}
 
-      {/* Top nav */}
       <nav className="flex items-center justify-between border-b border-foreground px-4 py-3">
         <Link to="/" className="font-display text-sm text-foreground tracking-wider">antk</Link>
         <div className="flex items-center gap-6">
@@ -55,15 +66,13 @@ export default function Dashboard() {
         </div>
       </nav>
 
-      {/* Main content */}
       <div className="flex-1 p-8">
-        {/* Project cards - horizontal scroll */}
         <div className="flex gap-4 overflow-x-auto pb-4">
           {activeProjects.map((project) => (
             <div
               key={project.id}
               className="min-w-[300px] flex-shrink-0 border border-foreground p-4 flex flex-col gap-3 cursor-pointer hover:border-accent transition-colors duration-75"
-              style={{ borderRadius: '4px' }}
+              style={{ borderRadius: "4px" }}
             >
               <div className="flex items-start justify-between" onClick={() => navigate(`/projects/${project.id}`)}>
                 <span className="font-mono text-lg text-foreground">{project.name}</span>
@@ -80,17 +89,13 @@ export default function Dashboard() {
               <Button
                 variant="lockin"
                 size="full"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate(`/session/new?project=${project.id}`);
-                }}
+                onClick={(e) => { e.stopPropagation(); navigate(`/session/new?project=${project.id}`); }}
               >
                 LOCK IN
               </Button>
             </div>
           ))}
 
-          {/* New project card */}
           <div
             className="min-w-[300px] flex-shrink-0 border border-dashed border-muted-foreground p-4 flex items-center justify-center cursor-pointer hover:border-foreground transition-colors duration-75"
             onClick={() => navigate("/projects/new")}
@@ -99,7 +104,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Done projects */}
         {doneProjects.length > 0 && (
           <div className="mt-8">
             <button
@@ -114,13 +118,13 @@ export default function Dashboard() {
                   <div
                     key={project.id}
                     className="border border-muted-foreground p-4 opacity-50"
-                    style={{ borderRadius: '4px' }}
+                    style={{ borderRadius: "4px" }}
                   >
                     <div className="flex items-start justify-between">
                       <span className="font-mono text-lg text-muted-foreground">{project.name}</span>
                       <span className="font-display text-[8px] text-muted-foreground uppercase line-through">{project.build_stage}</span>
                     </div>
-                    <Link to={`/log`} className="font-mono text-xs text-muted-foreground hover:text-foreground mt-2 block">
+                    <Link to="/log" className="font-mono text-xs text-muted-foreground hover:text-foreground mt-2 block">
                       VIEW LOG
                     </Link>
                   </div>
@@ -130,7 +134,6 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Coworker status */}
         {coworker && (
           <div className="mt-8 border-t border-muted-foreground pt-4">
             <span className="font-mono text-xs text-muted-foreground">

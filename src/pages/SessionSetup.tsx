@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   getProjectById, getCurrentUserId, getActiveSession, getAllowlist,
   addToAllowlist, removeFromAllowlist, createSession,
 } from "@/lib/store";
+import type { Project, AllowlistEntry, Session } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import BountyLinkModal from "@/components/BountyLinkModal";
 
@@ -20,39 +21,58 @@ export default function SessionSetup() {
   const projectId = searchParams.get("project");
   const navigate = useNavigate();
   const userId = getCurrentUserId();
-  const project = projectId ? getProjectById(projectId) : null;
 
+  const [project, setProject] = useState<Project | null>(null);
+  const [existingSession, setExistingSession] = useState<Session | null>(null);
+  const [allowlist, setAllowlist] = useState<AllowlistEntry[]>([]);
   const [goal, setGoal] = useState("");
   const [timeBlock, setTimeBlock] = useState<number | null>(60);
   const [bounty, setBounty] = useState(false);
   const [newDomain, setNewDomain] = useState("");
   const [showBountyModal, setShowBountyModal] = useState(false);
   const [createdSession, setCreatedSession] = useState<{ id: string; bounty_uuid: string | null } | null>(null);
+  const [locking, setLocking] = useState(false);
 
-  if (!project || !userId) {
-    navigate("/");
-    return null;
-  }
+  useEffect(() => {
+    if (!projectId || !userId) { navigate("/"); return; }
+    Promise.all([
+      getProjectById(projectId),
+      getActiveSession(userId),
+      getAllowlist(userId),
+    ]).then(([p, existing, list]) => {
+      if (!p) { navigate("/"); return; }
+      setProject(p);
+      setExistingSession(existing ?? null);
+      setAllowlist(list);
+    });
+  }, [projectId, userId, navigate]);
 
-  const existing = getActiveSession(userId);
-  const allowlist = getAllowlist(userId);
-  const canLockIn = goal.trim() && allowlist.length > 0 && !existing;
+  if (!project || !userId) return null;
 
-  const handleAddDomain = () => {
+  const canLockIn = goal.trim() && allowlist.length > 0 && !existingSession;
+
+  const handleAddDomain = async () => {
     if (!newDomain.trim()) return;
-    addToAllowlist(userId, newDomain.trim().toLowerCase());
+    const entry = await addToAllowlist(userId, newDomain.trim().toLowerCase());
+    setAllowlist(prev => [...prev.filter(a => a.id !== entry.id), entry]);
     setNewDomain("");
   };
 
-  const handleLockIn = () => {
-    const session = createSession({
+  const handleRemoveDomain = async (id: string) => {
+    await removeFromAllowlist(id);
+    setAllowlist(prev => prev.filter(a => a.id !== id));
+  };
+
+  const handleLockIn = async () => {
+    if (!canLockIn || locking) return;
+    setLocking(true);
+    const session = await createSession({
       project_id: project.id,
       user_id: userId,
       goal: goal.trim(),
       time_block: timeBlock,
       bounty,
     });
-
     if (bounty && session.bounty_uuid) {
       setCreatedSession(session);
       setShowBountyModal(true);
@@ -64,17 +84,15 @@ export default function SessionSetup() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">
       <div className="flex w-full max-w-[560px] flex-col gap-6 p-8">
-        {/* Project context */}
         <div className="flex items-center justify-between">
           <span className="font-mono text-lg text-foreground">{project.name}</span>
           <span className="font-display text-[8px] text-muted-foreground uppercase">{project.build_stage}</span>
         </div>
 
-        {existing && (
+        {existingSession && (
           <p className="font-display text-[10px] text-accent">YOU'RE ALREADY LOCKED IN.</p>
         )}
 
-        {/* Goal */}
         <div>
           <label className="font-display text-[10px] text-muted-foreground mb-2 block">WHAT ARE YOU SHIPPING TODAY?</label>
           <textarea
@@ -86,7 +104,6 @@ export default function SessionSetup() {
           />
         </div>
 
-        {/* Time block */}
         <div>
           <label className="font-display text-[10px] text-muted-foreground mb-2 block">TIME BLOCK</label>
           <div className="flex gap-0">
@@ -96,9 +113,7 @@ export default function SessionSetup() {
                 type="button"
                 onClick={() => setTimeBlock(opt.value)}
                 className={`border border-foreground px-3 py-2 font-mono text-xs transition-colors duration-75 ${
-                  timeBlock === opt.value
-                    ? "bg-foreground text-background"
-                    : "bg-background text-foreground hover:bg-surface"
+                  timeBlock === opt.value ? "bg-foreground text-background" : "bg-background text-foreground hover:bg-surface"
                 }`}
               >
                 {opt.label}
@@ -107,19 +122,13 @@ export default function SessionSetup() {
           </div>
         </div>
 
-        {/* Allowlist */}
         <div>
           <label className="font-display text-[10px] text-muted-foreground mb-2 block">ALLOWED URLS</label>
           <div className="flex flex-wrap gap-2 mb-2">
             {allowlist.map((entry) => (
               <span key={entry.id} className="flex items-center gap-1 border border-foreground px-2 py-1 font-mono text-xs text-foreground">
                 {entry.domain}
-                <button
-                  onClick={() => removeFromAllowlist(entry.id)}
-                  className="text-muted-foreground hover:text-accent ml-1"
-                >
-                  ×
-                </button>
+                <button onClick={() => handleRemoveDomain(entry.id)} className="text-muted-foreground hover:text-accent ml-1">×</button>
               </span>
             ))}
           </div>
@@ -135,29 +144,18 @@ export default function SessionSetup() {
           </div>
         </div>
 
-        {/* Bounty toggle */}
         <div className="flex items-center justify-between">
           <label className="font-display text-[10px] text-muted-foreground">SET BOUNTY</label>
           <button
             onClick={() => setBounty(!bounty)}
             className={`w-12 h-6 border border-foreground relative transition-colors duration-75 ${bounty ? "bg-accent" : "bg-background"}`}
           >
-            <span
-              className={`block w-4 h-4 border border-foreground bg-foreground absolute top-[3px] transition-all duration-75 ${
-                bounty ? "left-[26px]" : "left-[3px]"
-              }`}
-            />
+            <span className={`block w-4 h-4 border border-foreground bg-foreground absolute top-[3px] transition-all duration-75 ${bounty ? "left-[26px]" : "left-[3px]"}`} />
           </button>
         </div>
 
-        {/* Lock In */}
-        <Button
-          variant={canLockIn ? "lockin" : "lockinDisabled"}
-          size="full"
-          onClick={handleLockIn}
-          disabled={!canLockIn}
-        >
-          LOCK IN
+        <Button variant={canLockIn ? "lockin" : "lockinDisabled"} size="full" onClick={handleLockIn} disabled={!canLockIn || locking}>
+          {locking ? "LOCKING IN..." : "LOCK IN"}
         </Button>
 
         <button onClick={() => navigate("/")} className="font-mono text-xs text-muted-foreground hover:text-foreground text-center">
