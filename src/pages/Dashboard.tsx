@@ -10,7 +10,6 @@ export default function Dashboard() {
   const [showDone, setShowDone] = useState(false);
   const [, setTick] = useState(0);
 
-  // Re-render periodically to update stats
   useEffect(() => {
     const i = setInterval(() => setTick(t => t + 1), 5000);
     return () => clearInterval(i);
@@ -21,7 +20,6 @@ export default function Dashboard() {
     return null;
   }
 
-  // Redirect if active session
   const activeSession = getActiveSession(user.id);
   if (activeSession) {
     navigate(`/session/${activeSession.id}`);
@@ -30,17 +28,9 @@ export default function Dashboard() {
 
   const activeProjects = getActiveProjects(user.id);
   const doneProjects = getDoneProjects(user.id);
-  const extActive = localStorage.getItem("antk_ext_active") === "true";
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      {/* Extension banner */}
-      {!extActive && (
-        <div className="border-b border-foreground px-4 py-2 text-center font-mono text-xs text-foreground">
-          INSTALL THE ANTK EXTENSION TO ENABLE DISTRACTION DEFENSE →
-        </div>
-      )}
-
       {/* Top nav */}
       <nav className="flex items-center justify-between border-b border-foreground px-4 py-3">
         <Link to="/" className="font-display text-sm text-foreground tracking-wider">antk</Link>

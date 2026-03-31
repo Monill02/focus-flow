@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { createProject, getCurrentUserId } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 
-const BUILD_STAGES = ["Ideation", "Building", "Shipping", "Done"] as const;
+const BUILD_STAGES = ["Ideation", "Building", "Deployment", "Iteration"] as const;
 
 export default function NewProject() {
   const [name, setName] = useState("");
@@ -52,11 +52,20 @@ export default function NewProject() {
           </div>
         </div>
 
-        <Button type="submit" variant="default" className="font-display text-[10px]" disabled={!name.trim()}>
+        <Button
+          type="submit"
+          variant="default"
+          className="font-display text-[10px]"
+          disabled={!name.trim()}
+        >
           CREATE PROJECT
         </Button>
 
-        <button onClick={() => navigate("/")} className="font-mono text-xs text-muted-foreground hover:text-foreground">
+        <button
+          type="button"
+          onClick={() => navigate("/")}
+          className="font-mono text-xs text-muted-foreground hover:text-foreground"
+        >
           ← DASHBOARD
         </button>
       </form>

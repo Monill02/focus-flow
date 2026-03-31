@@ -18,7 +18,7 @@ export interface Project {
   id: string;
   user_id: string;
   name: string;
-  build_stage: 'Ideation' | 'Building' | 'Shipping' | 'Done';
+  build_stage: 'Ideation' | 'Building' | 'Deployment' | 'Iteration';
   status: 'active' | 'done';
   created_at: string;
   last_session_date: string | null;

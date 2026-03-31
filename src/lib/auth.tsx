@@ -8,14 +8,15 @@ type AuthContextValue = {
   user: User | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string, name: string) => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 function fallbackName(user: User) {
-  const candidate = user.user_metadata?.name;
+  const candidate = user.user_metadata?.full_name ?? user.user_metadata?.name;
   if (typeof candidate === "string" && candidate.trim().length > 0) {
     return candidate.trim();
   }
@@ -62,8 +63,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
       },
-      async signUp(email: string, password: string) {
-        const { error } = await supabase.auth.signUp({ email, password });
+      async signUp(email: string, password: string, name: string) {
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { data: { name } },
+        });
+        if (error) throw error;
+      },
+      async signInWithGoogle() {
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: "google",
+          options: {
+            redirectTo: `${window.location.origin}/`,
+          },
+        });
         if (error) throw error;
       },
       async signOut() {
