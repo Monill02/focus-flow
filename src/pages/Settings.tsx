@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import {
   getCurrentUserId, getSettings, saveSettings, getAllowlist,
   addToAllowlist, removeFromAllowlist,
 } from "@/lib/store";
+import type { UserSettings, AllowlistEntry } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 
 const IDLE_OPTIONS = [2, 5, 10, 15];
@@ -13,25 +14,48 @@ const SCHEDULE_OPTIONS = [15, 30, 60];
 export default function Settings() {
   const { signOut } = useAuth();
   const userId = getCurrentUserId();
-  const [settings, setSettingsState] = useState(() => getSettings(userId || ""));
+  const [settings, setSettingsState] = useState<UserSettings>({
+    fuelEnabled: true,
+    triggeredEnabled: true,
+    scheduledEnabled: false,
+    scheduledInterval: 30,
+    idleThreshold: 5,
+    doomscrollDefenseEnabled: true,
+  });
+  const [allowlist, setAllowlist] = useState<AllowlistEntry[]>([]);
   const [newDomain, setNewDomain] = useState("");
-  const allowlist = userId ? getAllowlist(userId) : [];
+
+  useEffect(() => {
+    if (!userId) return;
+    Promise.all([getSettings(userId), getAllowlist(userId)]).then(([s, a]) => {
+      setSettingsState(s);
+      setAllowlist(a);
+    });
+  }, [userId]);
 
   if (!userId) return null;
 
-  const update = (partial: Partial<typeof settings>) => {
+  const update = async (partial: Partial<UserSettings>) => {
     const next = { ...settings, ...partial };
     setSettingsState(next);
-    saveSettings(userId, next);
+    await saveSettings(userId, next);
   };
 
-  const handleAddDomain = () => {
+  const handleAddDomain = async () => {
     if (!newDomain.trim()) return;
-    addToAllowlist(userId, newDomain.trim().toLowerCase());
+    const entry = await addToAllowlist(userId, newDomain.trim().toLowerCase());
+    setAllowlist(prev => [...prev.filter(a => a.id !== entry.id), entry]);
     setNewDomain("");
   };
 
-  const Toggle = ({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) => (
+  const handleRemoveDomain = async (id: string) => {
+    await removeFromAllowlist(id);
+    setAllowlist(prev => prev.filter(a => a.id !== id));
+  };
+
+  const Toggle = ({ checked, onChange, label, disabled }: {
+    checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean;
+  }) => (
     <div className="flex items-center justify-between py-2">
       <span className="font-mono text-sm text-foreground">{label}</span>
       <button
@@ -54,44 +78,18 @@ export default function Settings() {
         <div className="w-full max-w-[480px] flex flex-col gap-8">
           <h1 className="font-display text-sm text-foreground">SETTINGS</h1>
           <div>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={async () => {
-                await signOut();
-              }}
-            >
-              SIGN OUT
-            </Button>
+            <Button variant="secondary" size="sm" onClick={() => signOut()}>SIGN OUT</Button>
           </div>
 
-          {/* Motivation */}
           <div className="border border-foreground p-4 flex flex-col gap-2">
             <h2 className="font-display text-[10px] text-muted-foreground mb-2">MOTIVATION</h2>
-            <Toggle
-              checked={settings.fuelEnabled}
-              onChange={(v) => update({ fuelEnabled: v })}
-              label="On-demand (Fuel button)"
-            />
-            <Toggle
-              checked={settings.triggeredEnabled}
-              onChange={(v) => update({ triggeredEnabled: v })}
-              label="Triggered nudges (idle + posture)"
-            />
-            <Toggle
-              checked={settings.doomscrollDefenseEnabled}
-              onChange={(v) => update({ doomscrollDefenseEnabled: v })}
-              label="Posture / doomscroll camera (during session)"
-            />
+            <Toggle checked={settings.fuelEnabled} onChange={(v) => update({ fuelEnabled: v })} label="On-demand (Fuel button)" />
+            <Toggle checked={settings.triggeredEnabled} onChange={(v) => update({ triggeredEnabled: v })} label="Triggered nudges (idle + posture)" />
+            <Toggle checked={settings.doomscrollDefenseEnabled} onChange={(v) => update({ doomscrollDefenseEnabled: v })} label="Posture / doomscroll camera (during session)" />
             <p className="font-mono text-[10px] text-muted-foreground -mt-1">
               Uses your webcam only while locked in. Processing stays on your device.
             </p>
-            <Toggle
-              checked={settings.scheduledEnabled}
-              onChange={() => {}}
-              label="Scheduled — COMING SOON"
-              disabled
-            />
+            <Toggle checked={settings.scheduledEnabled} onChange={() => {}} label="Scheduled — COMING SOON" disabled />
             {settings.scheduledEnabled && (
               <div className="flex gap-0 mt-2">
                 {SCHEDULE_OPTIONS.map(m => (
@@ -107,7 +105,6 @@ export default function Settings() {
             )}
           </div>
 
-          {/* Distraction Defense */}
           <div className="border border-foreground p-4">
             <h2 className="font-display text-[10px] text-muted-foreground mb-4">DISTRACTION DEFENSE</h2>
             <label className="font-mono text-xs text-muted-foreground mb-2 block">Idle threshold</label>
@@ -124,14 +121,13 @@ export default function Settings() {
             </div>
           </div>
 
-          {/* URL Allowlist */}
           <div className="border border-foreground p-4">
             <h2 className="font-display text-[10px] text-muted-foreground mb-4">URL ALLOWLIST</h2>
             <div className="flex flex-wrap gap-2 mb-4">
               {allowlist.map(entry => (
                 <span key={entry.id} className="flex items-center gap-1 border border-foreground px-2 py-1 font-mono text-xs text-foreground">
                   {entry.domain}
-                  <button onClick={() => removeFromAllowlist(entry.id)} className="text-muted-foreground hover:text-accent ml-1">×</button>
+                  <button onClick={() => handleRemoveDomain(entry.id)} className="text-muted-foreground hover:text-accent ml-1">×</button>
                 </span>
               ))}
               {allowlist.length === 0 && <span className="font-mono text-xs text-muted-foreground">No domains saved.</span>}

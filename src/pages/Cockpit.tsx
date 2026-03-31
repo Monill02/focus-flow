@@ -5,63 +5,85 @@ import {
   getCoworker, getActiveSession, getSettings, logViolation, formatDuration,
   getBountyEventsForSession,
 } from "@/lib/store";
+import type { Session, Project, User, UserSettings } from "@/lib/store";
 import { DoomcamSession, isDoomcamEnvEnabled } from "@/features/doomcam";
 import { Button } from "@/components/ui/button";
 import NudgeOverlay from "@/components/NudgeOverlay";
 import FuelOverlay from "@/components/FuelOverlay";
 import CaughtOverlay from "@/components/CaughtOverlay";
-import ShiaOverlay from "@/components/ShiaOverlay"; // ← ADDED
+import ShiaOverlay from "@/components/ShiaOverlay";
 
 export default function Cockpit() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const userId = getCurrentUserId();
 
-  const session = id ? getSessionById(id) : null;
-  const project = session ? getProjectById(session.project_id) : null;
-  const user = userId ? getUserById(userId) : null;
-  const coworker = getCoworker();
-  const coworkerSession = coworker ? getActiveSession(coworker.id) : null;
+  const [session, setSession] = useState<Session | null>(null);
+  const [project, setProject] = useState<Project | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [coworker, setCoworker] = useState<User | null>(null);
+  const [coworkerSession, setCoworkerSession] = useState<Session | null>(null);
+  const [cockpitSettings, setCockpitSettings] = useState<UserSettings | null>(null);
 
   const [elapsed, setElapsed] = useState(0);
   const [showNudge, setShowNudge] = useState(false);
   const [showFuel, setShowFuel] = useState(false);
   const [showCaught, setShowCaught] = useState(false);
-  const [showShia, setShowShia] = useState(false); // ← ADDED
+  const [showShia, setShowShia] = useState(false);
   const [nudgeHeadline, setNudgeHeadline] = useState<string | undefined>(undefined);
   const [doomBanner, setDoomBanner] = useState<string | null>(null);
   const [status, setStatus] = useState<"ACTIVE" | "IDLE">("ACTIVE");
   const lastActivityRef = useRef(Date.now());
-  const overlaysRef = useRef({ nudge: false, caught: false, fuel: false, shia: false }); // ← UPDATED
-  const [, setTick] = useState(0);
+  const overlaysRef = useRef({ nudge: false, caught: false, fuel: false, shia: false });
 
-  overlaysRef.current = { nudge: showNudge, caught: showCaught, fuel: showFuel, shia: showShia }; // ← UPDATED
+  overlaysRef.current = { nudge: showNudge, caught: showCaught, fuel: showFuel, shia: showShia };
 
-  // ← UPDATED: now fires ShiaOverlay instead of NudgeOverlay
-  const handlePostureBad = useCallback(() => {
-    if (!session || !userId) return;
-    const s = getSettings(userId);
-    if (!s.triggeredEnabled) return;
-    const o = overlaysRef.current;
-    if (o.nudge || o.caught || o.fuel || o.shia) return; // ← UPDATED
-    logViolation(session.id, "posture");
-    setShowShia(true); // ← UPDATED (was setNudgeHeadline + setShowNudge)
-  }, [session, userId]);
-
-  // Redirect if no session
+  // Load session data
   useEffect(() => {
-    if (!session || session.status !== "active") {
-      navigate("/");
+    if (!id || !userId) return;
+    Promise.all([
+      getSessionById(id),
+      getUserById(userId),
+      getCoworker(),
+      getSettings(userId),
+    ]).then(([sess, u, cw, settings]) => {
+      if (!sess || sess.status !== "active") { navigate("/"); return; }
+      setSession(sess);
+      setCurrentUser(u ?? null);
+      setCoworker(cw ?? null);
+      setCockpitSettings(settings);
+      getProjectById(sess.project_id).then(p => setProject(p ?? null));
+      if (cw) getActiveSession(cw.id).then(cs => setCoworkerSession(cs ?? null));
+    });
+  }, [id, userId, navigate]);
+
+  const loadUser = useCallback(async () => {
+    if (userId) {
+      const u = await getUserById(userId);
+      setCurrentUser(u ?? null);
     }
+  }, [userId]);
+
+  const handleLockOut = useCallback(async () => {
+    if (!session) return;
+    await endSession(session.id);
+    navigate(`/session/${session.id}/reflect`);
   }, [session, navigate]);
+
+  const handlePostureBad = useCallback(async () => {
+    if (!session || !cockpitSettings) return;
+    if (!cockpitSettings.triggeredEnabled) return;
+    const o = overlaysRef.current;
+    if (o.nudge || o.caught || o.fuel || o.shia) return;
+    await logViolation(session.id, "posture");
+    setShowShia(true);
+  }, [session, cockpitSettings]);
 
   // Timer
   useEffect(() => {
     if (!session) return;
     const startTime = new Date(session.started_at).getTime();
-    const timer = setInterval(() => {
-      setElapsed(Date.now() - startTime);
-    }, 1000);
+    const timer = setInterval(() => setElapsed(Date.now() - startTime), 1000);
     return () => clearInterval(timer);
   }, [session]);
 
@@ -69,16 +91,13 @@ export default function Cockpit() {
   useEffect(() => {
     if (!session?.time_block) return;
     const endTime = new Date(session.started_at).getTime() + session.time_block * 60000;
-    if (Date.now() >= endTime) {
-      handleLockOut();
-    }
-  }, [elapsed]);
+    if (Date.now() >= endTime) handleLockOut();
+  }, [elapsed, session, handleLockOut]);
 
   // Idle detection
   useEffect(() => {
-    if (!session || !userId) return;
-    const settings = getSettings(userId);
-    const threshold = settings.idleThreshold * 60 * 1000;
+    if (!session || !cockpitSettings) return;
+    const threshold = cockpitSettings.idleThreshold * 60 * 1000;
 
     const resetActivity = () => {
       lastActivityRef.current = Date.now();
@@ -88,11 +107,11 @@ export default function Cockpit() {
     window.addEventListener("keydown", resetActivity);
     window.addEventListener("click", resetActivity);
 
-    const idleCheck = setInterval(() => {
+    const idleCheck = setInterval(async () => {
       if (Date.now() - lastActivityRef.current > threshold) {
         setStatus("IDLE");
-        if (settings.triggeredEnabled && !showNudge && !showCaught) {
-          logViolation(session.id, "idle");
+        if (cockpitSettings.triggeredEnabled && !showNudge && !showCaught) {
+          await logViolation(session.id, "idle");
           setNudgeHeadline(undefined);
           setShowNudge(true);
         }
@@ -105,32 +124,18 @@ export default function Cockpit() {
       window.removeEventListener("keydown", resetActivity);
       window.removeEventListener("click", resetActivity);
     };
-  }, [session, userId, status, showNudge, showCaught]);
+  }, [session, cockpitSettings, status, showNudge, showCaught]);
 
-  // EXTENSION HOOK: tab violation events will be received here via WebSocket.
-
-  // Check for bounty catches (poll in localStorage prototype)
+  // Bounty catch polling
   useEffect(() => {
-    if (!session || !session.bounty_active) return;
-    const checker = setInterval(() => {
-      const events = getBountyEventsForSession(session.id);
-      if (events.length > 0 && !showCaught) {
-        setShowCaught(true);
-      }
+    if (!session?.bounty_active) return;
+    const checker = setInterval(async () => {
+      const events = await getBountyEventsForSession(session.id);
+      if (events.length > 0 && !showCaught) setShowCaught(true);
     }, 3000);
     return () => clearInterval(checker);
   }, [session, showCaught]);
 
-  const handleLockOut = useCallback(() => {
-    if (!session) return;
-    endSession(session.id);
-    navigate(`/session/${session.id}/reflect`);
-  }, [session, navigate]);
-
-  // Force re-read user data
-  const refreshUser = () => setTick(t => t + 1);
-  const currentUser = userId ? getUserById(userId) : null;
-  const cockpitSettings = userId ? getSettings(userId) : null;
   const doomcamEnvOn = isDoomcamEnvEnabled();
 
   if (!session || !project || !currentUser) return null;
@@ -139,8 +144,7 @@ export default function Cockpit() {
     ? Math.max(0, session.time_block * 60000 - elapsed)
     : null;
 
-  // Auto-end if time is up
-  if (remaining !== null && remaining <= 0 && session.status === 'active') {
+  if (remaining !== null && remaining <= 0 && session.status === "active") {
     handleLockOut();
   }
 
@@ -153,17 +157,10 @@ export default function Cockpit() {
           envEnabled={doomcamEnvOn}
           onPostureBad={handlePostureBad}
           onStatus={(s, detail) => {
-            if (s === "denied") {
-              setDoomBanner("Posture defense off — camera permission denied.");
-            } else if (s === "unavailable") {
-              setDoomBanner("Posture defense off — camera not available.");
-            } else if (s === "error") {
-              setDoomBanner(detail ?? "Posture defense failed to start.");
-            } else if (s === "off") {
-              setDoomBanner(null);
-            } else {
-              setDoomBanner(null);
-            }
+            if (s === "denied") setDoomBanner("Posture defense off — camera permission denied.");
+            else if (s === "unavailable") setDoomBanner("Posture defense off — camera not available.");
+            else if (s === "error") setDoomBanner(detail ?? "Posture defense failed to start.");
+            else setDoomBanner(null);
           }}
         />
       )}
@@ -174,18 +171,14 @@ export default function Cockpit() {
         </div>
       )}
 
-      {/* Top bar */}
       <div className="flex items-center justify-between border-b border-foreground px-4 py-3">
         <span className="font-mono text-sm text-foreground">{project.name}</span>
         <span className="font-display text-[8px] text-muted-foreground uppercase">{project.build_stage}</span>
       </div>
 
-      {/* Main cockpit */}
       <div className="flex flex-1 flex-col items-center justify-center gap-8 p-8">
-        {/* Goal */}
         <p className="font-mono text-sm text-muted-foreground text-center max-w-md">{session.goal}</p>
 
-        {/* Timer */}
         <div className="text-center">
           <p className="font-display text-5xl text-foreground tabular-nums tracking-wider">
             {formatDuration(elapsed)}
@@ -197,46 +190,30 @@ export default function Cockpit() {
           )}
         </div>
 
-        {/* Stats */}
         <div className="flex items-center gap-8">
           <span className="font-display text-[10px] text-foreground tabular-nums">🔥 {currentUser.streak}</span>
           <span className="font-display text-[10px] text-foreground tabular-nums">{currentUser.points} PTS</span>
         </div>
 
-        {/* Coworker status */}
         {coworker && (
           <div className="border border-foreground px-4 py-2 flex items-center gap-3">
             <span className="font-mono text-xs text-foreground">{coworker.name}</span>
-            <span className={`font-display text-[8px] uppercase ${
-              coworkerSession ? "text-foreground" : "text-muted-foreground"
-            }`}>
+            <span className={`font-display text-[8px] uppercase ${coworkerSession ? "text-foreground" : "text-muted-foreground"}`}>
               {coworkerSession ? "ACTIVE" : "IDLE"}
             </span>
           </div>
         )}
 
-        {/* Action row */}
         <div className="flex w-full max-w-md gap-4">
-          <Button
-            variant="default"
-            size="full"
-            onClick={() => setShowFuel(true)}
-            className="font-display text-[10px]"
-          >
+          <Button variant="default" size="full" onClick={() => setShowFuel(true)} className="font-display text-[10px]">
             FUEL
           </Button>
-          <Button
-            variant="default"
-            size="full"
-            onClick={handleLockOut}
-            className="font-display text-[10px]"
-          >
+          <Button variant="default" size="full" onClick={handleLockOut} className="font-display text-[10px]">
             LOCK OUT
           </Button>
         </div>
       </div>
 
-      {/* Overlays */}
       {showNudge && (
         <NudgeOverlay
           headline={nudgeHeadline}
@@ -250,17 +227,9 @@ export default function Cockpit() {
       )}
       {showFuel && <FuelOverlay onDismiss={() => setShowFuel(false)} />}
       {showCaught && (
-        <CaughtOverlay
-          onDismiss={() => {
-            setShowCaught(false);
-            refreshUser();
-          }}
-        />
+        <CaughtOverlay onDismiss={() => { setShowCaught(false); loadUser(); }} />
       )}
-      {/* ← ADDED: Shia overlay for doomcam posture trigger */}
-      {showShia && (
-        <ShiaOverlay onDismiss={() => setShowShia(false)} />
-      )}
+      {showShia && <ShiaOverlay onDismiss={() => setShowShia(false)} />}
     </div>
   );
 }

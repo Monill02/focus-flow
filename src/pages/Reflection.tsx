@@ -1,25 +1,37 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { getSessionById, getProjectById, createReflection, formatDuration, sessionDuration } from "@/lib/store";
+import type { Session, Project } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 
 export default function Reflection() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const session = id ? getSessionById(id) : null;
-  const project = session ? getProjectById(session.project_id) : null;
-
+  const [session, setSession] = useState<Session | null>(null);
+  const [project, setProject] = useState<Project | null>(null);
   const [whatShipped, setWhatShipped] = useState("");
   const [whatLearned, setWhatLearned] = useState("");
   const [whatBlocked, setWhatBlocked] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  if (!session || !project) {
-    navigate("/");
-    return null;
-  }
+  useEffect(() => {
+    if (!id) { navigate("/"); return; }
+    getSessionById(id).then(sess => {
+      if (!sess) { navigate("/"); return; }
+      setSession(sess);
+      getProjectById(sess.project_id).then(p => {
+        if (!p) { navigate("/"); return; }
+        setProject(p);
+      });
+    });
+  }, [id, navigate]);
 
-  const handleSave = () => {
-    createReflection(session.id, {
+  if (!session || !project) return null;
+
+  const handleSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    await createReflection(session.id, {
       what_shipped: whatShipped,
       what_learned: whatLearned,
       what_blocked: whatBlocked,
@@ -33,16 +45,12 @@ export default function Reflection() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">
       <div className="flex w-full max-w-[560px] flex-col gap-6 p-8">
-        {/* Header */}
         <div className="border-b border-foreground pb-4">
           <p className="font-mono text-lg text-foreground">{project.name}</p>
-          <p className="font-mono text-xs text-muted-foreground mt-1">
-            {date} · {duration}
-          </p>
+          <p className="font-mono text-xs text-muted-foreground mt-1">{date} · {duration}</p>
           <p className="font-mono text-sm text-muted-foreground mt-2">{session.goal}</p>
         </div>
 
-        {/* Fields */}
         <div>
           <label className="font-display text-[10px] text-muted-foreground mb-2 block">WHAT I SHIPPED</label>
           <textarea
@@ -73,8 +81,8 @@ export default function Reflection() {
           />
         </div>
 
-        <Button variant="default" size="full" onClick={handleSave} className="font-display text-[10px]">
-          SAVE REFLECTION
+        <Button variant="default" size="full" onClick={handleSave} disabled={saving} className="font-display text-[10px]">
+          {saving ? "SAVING..." : "SAVE REFLECTION"}
         </Button>
 
         <button onClick={() => navigate("/")} className="font-mono text-xs text-muted-foreground hover:text-foreground text-center">

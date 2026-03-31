@@ -1,10 +1,16 @@
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
-import { AuthProvider } from "@/lib/auth";
+import { ClerkProvider } from "@clerk/clerk-react";
+
+const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+
+if (!PUBLISHABLE_KEY) {
+  throw new Error("Missing env var: VITE_CLERK_PUBLISHABLE_KEY");
+}
 
 createRoot(document.getElementById("root")!).render(
-  <AuthProvider>
+  <ClerkProvider publishableKey={PUBLISHABLE_KEY}>
     <App />
-  </AuthProvider>,
+  </ClerkProvider>,
 );

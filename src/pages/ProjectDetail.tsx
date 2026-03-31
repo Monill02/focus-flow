@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { getProjectById, updateProject } from "@/lib/store";
-import { getProjectSessions, formatDuration, getTotalTimeForProject } from "@/lib/store";
+import { getProjectById, updateProject, getProjectSessions, formatDuration, sessionDuration } from "@/lib/store";
+import type { Project, Session } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 
 const BUILD_STAGES = ["Ideation", "Building", "Shipping", "Done"] as const;
@@ -9,26 +9,33 @@ const BUILD_STAGES = ["Ideation", "Building", "Shipping", "Done"] as const;
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const project = id ? getProjectById(id) : null;
+  const [project, setProject] = useState<Project | null>(null);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [name, setName] = useState("");
+  const [stage, setStage] = useState<typeof BUILD_STAGES[number]>("Ideation");
 
-  const [name, setName] = useState(project?.name || "");
-  const [stage, setStage] = useState<typeof BUILD_STAGES[number]>(project?.build_stage || "Ideation");
+  useEffect(() => {
+    if (!id) { navigate("/"); return; }
+    Promise.all([getProjectById(id), getProjectSessions(id)]).then(([p, s]) => {
+      if (!p) { navigate("/"); return; }
+      setProject(p);
+      setSessions(s);
+      setName(p.name);
+      setStage(p.build_stage);
+    });
+  }, [id, navigate]);
 
-  if (!project) {
-    navigate("/");
-    return null;
-  }
+  if (!project) return null;
 
-  const sessions = getProjectSessions(project.id);
-  const totalTime = getTotalTimeForProject(project.id);
+  const totalTime = sessions.reduce((sum, s) => sum + sessionDuration(s), 0);
 
-  const handleSave = () => {
-    updateProject(project.id, { name: name.trim(), build_stage: stage });
+  const handleSave = async () => {
+    await updateProject(project.id, { name: name.trim(), build_stage: stage });
     navigate("/");
   };
 
-  const handleMarkDone = () => {
-    updateProject(project.id, { status: "done" });
+  const handleMarkDone = async () => {
+    await updateProject(project.id, { status: "done" });
     navigate("/");
   };
 
@@ -60,7 +67,6 @@ export default function ProjectDetail() {
           </div>
         </div>
 
-        {/* Stats */}
         <div className="border border-foreground p-4 flex flex-col gap-2">
           <div className="flex justify-between">
             <span className="font-mono text-xs text-muted-foreground">Created</span>
